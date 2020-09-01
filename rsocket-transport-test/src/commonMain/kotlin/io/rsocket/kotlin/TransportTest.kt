@@ -129,8 +129,13 @@ abstract class TransportTest(private val timeout: Duration = 10.minutes) {
         val request = RequestingFlow {
             repeat(200_000) { emit(Payload(it)) }
         }
-        val list = client.requestChannel(request).requesting(RequestStrategy(Int.MAX_VALUE)).onEach { it.release() }.toList()
-        assertEquals(200_000, list.size)
+        (1..10).map {
+            async(Dispatchers.Default) {
+                val list = client.requestChannel(request).requesting(RequestStrategy(Int.MAX_VALUE)).onEach { it.release() }.toList()
+                assertEquals(200_000, list.size)
+            }
+        }.awaitAll()
+
     }
 
     @Test
@@ -184,7 +189,9 @@ abstract class TransportTest(private val timeout: Duration = 10.minutes) {
     @Test
     fun requestResponse100000() = test(timeout) {
         val client = client()
-        repeat(100000) { client.requestResponse(Payload(3)).let(::checkPayload) }
+        (1..10).map {
+            async(Dispatchers.Default) { repeat(100000) { client.requestResponse(Payload(3)).let(::checkPayload) } }
+        }.awaitAll()
     }
 
     @Test
@@ -213,7 +220,7 @@ abstract class TransportTest(private val timeout: Duration = 10.minutes) {
         val LARGE_PAYLOAD by lazy { Payload(LARGE_DATA, LARGE_DATA) }
 
         val ACCEPTOR: RSocketAcceptor = { TestRSocket() }
-        val CONNECTOR_CONFIG = RSocketConnectorConfiguration(keepAlive = KeepAlive(10.minutes, 100.minutes))
+        val CONNECTOR_CONFIG = RSocketConnectorConfiguration(keepAlive = KeepAlive(3.seconds, 100.minutes))
         val SERVER_CONFIG = RSocketServerConfiguration()
     }
 }
