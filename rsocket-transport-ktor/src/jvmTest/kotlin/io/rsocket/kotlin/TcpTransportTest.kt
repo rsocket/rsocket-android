@@ -23,19 +23,14 @@ import io.rsocket.kotlin.connection.*
 import kotlinx.coroutines.*
 import kotlin.test.*
 
-@OptIn(InternalAPI::class)
 class TcpTransportTest : TransportTest() {
+    @OptIn(InternalAPI::class)
     private val selector = SelectorManager(Dispatchers.IO)
     private val builder = aSocket(selector).tcp()
-    private lateinit var server: ServerSocket
+    private val server = builder.bind()
 
     @BeforeTest
     fun setup() {
-        server = runBlocking {
-            trySeveralTimes {
-                builder.bind("127.0.0.1", 2323)
-            }
-        }
         GlobalScope.launch(start = CoroutineStart.UNDISPATCHED) {
             server.accept().connection.startServer(SERVER_CONFIG, ACCEPTOR).join()
         }
@@ -48,21 +43,6 @@ class TcpTransportTest : TransportTest() {
         runBlocking { server.socketContext.join() }
     }
 
-    override suspend fun init(): RSocket = trySeveralTimes {
-        builder.connect("127.0.0.1", 2323).connection.connectClient(CONNECTOR_CONFIG)
-    }
-
-    private suspend inline fun <R> trySeveralTimes(block: () -> R): R {
-        lateinit var error: Throwable
-        repeat(5) {
-            try {
-                return block()
-            } catch (e: Throwable) {
-                error = e
-                delay(500) //sometimes address isn't yet available
-            }
-        }
-        throw error
-    }
-
+    override suspend fun init(): RSocket =
+        builder.connect(server.localAddress).connection.connectClient(CONNECTOR_CONFIG)
 }
