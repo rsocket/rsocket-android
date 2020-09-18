@@ -55,6 +55,7 @@ gradleEnterprise {
 rootProject.name = "rsocket-kotlin"
 
 include("benchmarks")
+include("benchmarks-io")
 include("playground")
 
 include("rsocket-core")
