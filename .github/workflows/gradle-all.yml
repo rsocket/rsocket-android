@@ -25,17 +25,12 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 11
-      - name: Cache Gradle packages
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.gradle/caches/modules-2
-            ~/.konan
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.*') }} #hash based on *.gradle.kts and *.gradle.properties
-          restore-keys: ${{ runner.os }}-gradle
       - name: Build and run tests
         uses: eskatos/gradle-command-action@v1
         with:
+          wrapper-cache-enabled: true
+          dependencies-cache-enabled: true
+          configuration-cache-enabled: true
           arguments: build -PmacTargetsCompilation=${{ matrix.macTargetsCompilation }} --scan --no-daemon
 
   publish:
@@ -52,18 +47,13 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 11
-      - name: Cache Gradle packages
-        uses: actions/cache@v2
-        with:
-          path: |
-            ~/.gradle/caches/modules-2
-            ~/.konan
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.*') }} #hash based on *.gradle.kts and *.gradle.properties
-          restore-keys: ${{ runner.os }}-gradle
       - name: Set BRANCH_NAME for publication
         run: echo "BRANCH_NAME=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
         shell: bash
       - name: Publish Packages to Artifactory (version x.y.z-${{ env.BRANCH_NAME }}-SNAPSHOT)
         uses: eskatos/gradle-command-action@v1
         with:
+          wrapper-cache-enabled: true
+          dependencies-cache-enabled: true
+          configuration-cache-enabled: true
           arguments: artifactoryPublish -PbintrayUser=${{ secrets.bintrayUser }} -PbintrayKey=${{ secrets.bintrayKey }} -PversionSuffix=-${{ env.BRANCH_NAME }}-SNAPSHOT -PbuildNumber=${{ github.run_number }} --stacktrace --no-daemon
