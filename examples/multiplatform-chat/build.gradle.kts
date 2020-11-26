@@ -18,9 +18,12 @@ import org.jetbrains.kotlin.konan.target.*
 
 plugins {
     kotlin("multiplatform")
-    kotlin("plugin.serialization") version "1.4.10"
+    kotlin("plugin.serialization")
     id("kotlinx-atomicfu")
 }
+
+val ktorVersion: String by rootProject
+val kotlinxSerializationVersion: String by rootProject
 
 kotlin {
     jvm("serverJvm")
@@ -49,7 +52,7 @@ kotlin {
             dependencies {
                 implementation(project(":rsocket-core"))
 
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:1.0.0-RC")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-protobuf:$kotlinxSerializationVersion")
             }
         }
 
@@ -63,21 +66,21 @@ kotlin {
         val serverJvmMain by getting {
             dependencies {
                 implementation(project(":rsocket-transport-ktor-server"))
-                implementation("io.ktor:ktor-server-cio:1.4.1")
+                implementation("io.ktor:ktor-server-cio:$ktorVersion")
             }
         }
 
         val clientJvmMain by getting {
             dependsOn(clientMain)
             dependencies {
-                implementation("io.ktor:ktor-client-cio:1.4.1")
+                implementation("io.ktor:ktor-client-cio:$ktorVersion")
             }
         }
 
         val clientJsMain by getting {
             dependsOn(clientMain)
             dependencies {
-                implementation("io.ktor:ktor-client-js:1.4.1")
+                implementation("io.ktor:ktor-client-js:$ktorVersion")
             }
         }
 

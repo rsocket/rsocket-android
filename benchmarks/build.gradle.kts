@@ -18,8 +18,8 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.*
 
 plugins {
     kotlin("multiplatform")
-    id("kotlinx.benchmark") version "0.2.0-dev-20"
-    kotlin("plugin.allopen") version "1.4.10"
+    id("kotlinx.benchmark")
+    kotlin("plugin.allopen")
 }
 
 repositories {
@@ -28,6 +28,7 @@ repositories {
 
 val rsocketJavaVersion: String by rootProject
 val kotlinxCoroutinesVersion: String by rootProject
+val kotlinxBenchmarkVersion: String by rootProject
 
 kotlin {
     val jvm = jvm() //common jvm source set
@@ -37,7 +38,7 @@ kotlin {
     sourceSets {
         val commonMain by getting {
             dependencies {
-                implementation("org.jetbrains.kotlinx:kotlinx.benchmark.runtime:0.2.0-dev-20")
+                implementation("org.jetbrains.kotlinx:kotlinx.benchmark.runtime:$kotlinxBenchmarkVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$kotlinxCoroutinesVersion")
             }
         }

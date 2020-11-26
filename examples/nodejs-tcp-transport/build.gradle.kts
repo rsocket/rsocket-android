@@ -18,6 +18,8 @@ plugins {
     kotlin("multiplatform")
 }
 
+val kotlinxNodejsVersion: String by rootProject
+
 kotlin {
     js(IR) {
         nodejs {
@@ -29,7 +31,7 @@ kotlin {
         val jsMain by getting {
             dependencies {
                 implementation(project(":rsocket-core"))
-                implementation("org.jetbrains.kotlinx:kotlinx-nodejs:0.0.7")
+                implementation("org.jetbrains.kotlinx:kotlinx-nodejs:$kotlinxNodejsVersion")
             }
         }
     }

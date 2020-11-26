@@ -39,21 +39,25 @@ abstract class TransportTest : SuspendTest {
     @Test
     fun fireAndForget10() = test {
         (1..10).map { async { client.fireAndForget(payload(it)) } }.awaitAll()
+        delay(1000) //TODO
     }
 
     @Test
     fun largePayloadFireAndForget10() = test {
         (1..10).map { async { client.fireAndForget(LARGE_PAYLOAD) } }.awaitAll()
+        delay(1000) //TODO
     }
 
     @Test
     fun metadataPush10() = test {
         (1..10).map { async { client.metadataPush(packet(MOCK_DATA)) } }.awaitAll()
+        delay(1000) //TODO
     }
 
     @Test
     fun largePayloadMetadataPush10() = test {
         (1..10).map { async { client.metadataPush(packet(LARGE_DATA)) } }.awaitAll()
+        delay(1000) //TODO
     }
 
     @Test

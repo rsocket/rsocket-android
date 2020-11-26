@@ -26,40 +26,40 @@ import kotlinx.coroutines.flow.*
 internal typealias ReconnectPredicate = suspend (cause: Throwable, attempt: Long) -> Boolean
 
 @Suppress("FunctionName")
-@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
+@OptIn(FlowPreview::class)
 internal suspend fun ReconnectableRSocket(
     logger: Logger,
     connect: suspend () -> RSocket,
     predicate: ReconnectPredicate,
 ): RSocket {
-    val state = MutableStateFlow<ReconnectState>(ReconnectState.Connecting)
-
-    val job =
+    val job = Job()
+    val state =
         connect.asFlow()
             .map<RSocket, ReconnectState> { ReconnectState.Connected(it) } //if connection established - state = connected
             .onStart { emit(ReconnectState.Connecting) } //init - state = connecting
-            .retryWhen { cause, attempt ->
+            .retryWhen { cause, attempt -> //reconnection logic
                 logger.debug(cause) { "Connection establishment failed, attempt: $attempt. Trying to reconnect..." }
                 predicate(cause, attempt)
-            } //reconnection logic
-            .catch {
+            }
+            .catch { //reconnection failed - state = failed
                 logger.debug(it) { "Reconnection failed" }
                 emit(ReconnectState.Failed(it))
-            } //reconnection failed - state = failed
-            .mapNotNull {
-                state.value = it //set state //TODO replace with Flow.stateIn when coroutines 1.4.0-native-mt will be released
+            }
+            .transform { value ->
+                emit(value) //emit before any action, to pass value directly to state
 
-                when (it) {
+                when (value) {
                     is ReconnectState.Connected -> {
                         logger.debug { "Connection established" }
-                        it.rSocket.join() //await for connection completion
+                        value.rSocket.join() //await for connection completion
                         logger.debug { "Connection closed. Reconnecting..." }
                     }
-                    is ReconnectState.Failed    -> throw it.error //reconnect failed, cancel job
-                    ReconnectState.Connecting   -> null //skip, still waiting for new connection
+                    is ReconnectState.Failed    -> job.cancel("Reconnection failed", value.error) //reconnect failed, cancel job
+                    ReconnectState.Connecting   -> Unit //skip, still waiting for new connection
                 }
             }
-            .launchRestarting() //reconnect if old connection completed/failed
+            .restarting() //reconnect if old connection completed
+            .stateIn(CoroutineScope(Dispatchers.Unconfined + job))
 
     //await first connection to fail fast if something
     state.mapNotNull {
@@ -73,17 +73,7 @@ internal suspend fun ReconnectableRSocket(
     return ReconnectableRSocket(job, state)
 }
 
-private fun Flow<*>.launchRestarting(): Job = GlobalScope.launch(Dispatchers.Unconfined) {
-    while (isActive) {
-        try {
-            collect()
-        } catch (e: Throwable) {
-            // KLUDGE: K/N
-            cancel("Reconnection failed", e)
-            break
-        }
-    }
-}
+private fun Flow<ReconnectState>.restarting(): Flow<ReconnectState> = flow { while (true) emitAll(this@restarting) }
 
 private sealed class ReconnectState {
     object Connecting : ReconnectState()
@@ -91,7 +81,6 @@ private sealed class ReconnectState {
     data class Connected(val rSocket: RSocket) : ReconnectState()
 }
 
-@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 private class ReconnectableRSocket(
     override val job: Job,
     private val state: StateFlow<ReconnectState>,

@@ -34,8 +34,6 @@ internal class LocalConnection(
 
     init {
         job.invokeOnCompletion {
-            sender.closeReceivedElements()
-            receiver.closeReceivedElements()
             sender.close(it)
             receiver.close(it)
         }
@@ -47,12 +45,5 @@ internal class LocalConnection(
 
     override suspend fun receive(): ByteReadPacket {
         return receiver.receive()
-    }
-}
-
-private fun ReceiveChannel<Closeable>.closeReceivedElements() {
-    try {
-        while (true) poll()?.close() ?: break
-    } catch (e: Throwable) {
     }
 }

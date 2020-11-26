@@ -21,15 +21,28 @@ pluginManagement {
         maven("https://dl.bintray.com/kotlin/kotlinx")
     }
 
+    val kotlinVersion: String by settings
+    val bintrayVersion: String by settings
+    val artifactoryVersion: String by settings
+    val versionUpdatesVersion: String by settings
+    val gradleEnterpriseVersion: String by settings
+    val kotlinxBenchmarkVersion: String by settings
+
     plugins {
-        id("com.jfrog.bintray") version "1.8.5"
-        id("com.jfrog.artifactory") version "4.17.2"
-        id("com.github.ben-manes.versions") version "0.33.0"
+        kotlin("plugin.allopen") version kotlinVersion
+        kotlin("plugin.serialization") version kotlinVersion
+
+        id("kotlinx.benchmark") version kotlinxBenchmarkVersion
+
+        id("com.jfrog.bintray") version bintrayVersion
+        id("com.jfrog.artifactory") version artifactoryVersion
+        id("com.github.ben-manes.versions") version versionUpdatesVersion
+        id("com.gradle.enterprise") version gradleEnterpriseVersion
     }
 }
 
 plugins {
-    id("com.gradle.enterprise") version "3.4.1"
+    id("com.gradle.enterprise")
 }
 
 gradleEnterprise {

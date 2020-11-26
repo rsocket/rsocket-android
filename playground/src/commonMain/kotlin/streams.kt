@@ -18,12 +18,11 @@ import io.rsocket.kotlin.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
 import kotlinx.coroutines.flow.*
-import kotlin.coroutines.*
 
 @ExperimentalStreamsApi
 private suspend fun s() {
     val flow = flow {
-        val strategy = coroutineContext[RequestStrategy]!!.provide()
+        val strategy = currentCoroutineContext()[RequestStrategy]!!.provide()
         var i = strategy.firstRequest()
         println("INIT: $i")
         var r = 0

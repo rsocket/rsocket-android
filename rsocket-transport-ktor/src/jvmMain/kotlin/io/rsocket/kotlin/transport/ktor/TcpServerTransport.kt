@@ -39,7 +39,6 @@ public fun TcpSocketBuilder.serverTransport(
 public class TcpServer(public val socket: ServerSocket) : ServerTransport<Job>, CoroutineScope {
     override val coroutineContext: CoroutineContext = socket.socketContext + Dispatchers.Unconfined
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     override fun start(accept: suspend (Connection) -> Unit): Job = launch {
         while (isActive) {
             val clientSocket = socket.accept()

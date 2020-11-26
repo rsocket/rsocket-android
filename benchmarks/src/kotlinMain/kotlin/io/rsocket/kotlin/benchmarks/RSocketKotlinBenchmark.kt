@@ -25,7 +25,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlin.random.*
 
-@OptIn(ExperimentalStreamsApi::class, ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalStreamsApi::class)
 class RSocketKotlinBenchmark : RSocketBenchmark<Payload>() {
     private val requestStrategy = PrefetchStrategy(64, 0)
 

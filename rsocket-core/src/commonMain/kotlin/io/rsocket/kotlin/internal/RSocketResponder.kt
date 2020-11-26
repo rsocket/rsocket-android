@@ -87,7 +87,6 @@ internal class RSocketResponder(
             send(CompletePayloadFrame(streamId))
         }.invokeOnCompletion {
             initFrame.release()
-            receiver.closeReceivedElements()
             if (it != null) receiver.cancelConsumed(it) //TODO check it
         }
     }

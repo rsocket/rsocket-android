@@ -27,14 +27,15 @@ import io.rsocket.kotlin.frame.io.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
 import kotlin.coroutines.*
+import kotlin.native.concurrent.*
 
 @OptIn(KtorExperimentalAPI::class, TransportApi::class, DangerousInternalIoApi::class)
 internal class TcpConnection(private val socket: Socket) : Connection, CoroutineScope {
     override val job: Job = Job(socket.socketContext)
     override val coroutineContext: CoroutineContext = job + Dispatchers.Unconfined
 
-    private val sendChannel = Channel<ByteReadPacket>(8)
-    private val receiveChannel = Channel<ByteReadPacket>(8)
+    private val sendChannel = SafeChannel<ByteReadPacket>(8)
+    private val receiveChannel = SafeChannel<ByteReadPacket>(8)
 
     init {
         launch {
@@ -64,3 +65,9 @@ internal class TcpConnection(private val socket: Socket) : Connection, Coroutine
 
     override suspend fun receive(): ByteReadPacket = receiveChannel.receive()
 }
+
+@SharedImmutable
+private val onUndeliveredCloseable: (Closeable) -> Unit = Closeable::close
+
+@Suppress("FunctionName")
+private fun <E : Closeable> SafeChannel(capacity: Int): Channel<E> = Channel(capacity, onUndeliveredElement = onUndeliveredCloseable)

@@ -53,7 +53,7 @@ internal class RSocketState(
     }
 
     fun createReceiverFor(streamId: Int, initFrame: RequestFrame? = null): ReceiveChannel<RequestFrame> {
-        val receiver = Channel<RequestFrame>(Channel.UNLIMITED)
+        val receiver = SafeChannel<RequestFrame>(Channel.UNLIMITED)
         initFrame?.let(receiver::offer) //used only in RequestChannel on responder side
         receivers[streamId] = receiver
         return receiver
@@ -69,10 +69,7 @@ internal class RSocketState(
         } finally {
             if (isActive && streamId in receivers) {
                 if (cause != null) send(CancelFrame(streamId))
-                receivers.remove(streamId)?.apply {
-                    closeReceivedElements()
-                    close(cause)
-                }
+                receivers.remove(streamId)?.close(cause)
             }
         }
     }
@@ -139,14 +136,11 @@ internal class RSocketState(
                 is RequestNFrame -> limits[streamId]?.updateRequests(frame.requestN)
                 is CancelFrame   -> senders.remove(streamId)?.cancel()
                 is ErrorFrame    -> {
-                    receivers.remove(streamId)?.apply {
-                        closeReceivedElements()
-                        close(frame.throwable)
-                    }
+                    receivers.remove(streamId)?.close(frame.throwable)
                     frame.release()
                 }
                 is RequestFrame  -> when (frame.type) {
-                    FrameType.Payload         -> receivers[streamId]?.offer(frame)
+                    FrameType.Payload         -> receivers[streamId]?.safeOffer(frame) ?: frame.release()
                     FrameType.RequestFnF      -> responder.handleFireAndForget(frame)
                     FrameType.RequestResponse -> responder.handlerRequestResponse(frame)
                     FrameType.RequestStream   -> responder.handleRequestStream(frame)
@@ -168,7 +162,6 @@ internal class RSocketState(
         job.invokeOnCompletion { error ->
             requestHandler.cancel("Connection closed", error)
             receivers.values().forEach {
-                it.closeReceivedElements()
                 it.close((error as? CancellationException)?.cause ?: error)
             }
             receivers.clear()
@@ -177,7 +170,10 @@ internal class RSocketState(
             prioritizer.close(error)
         }
         scope.launch {
-            while (connection.isActive) connection.sendFrame(prioritizer.receive())
+            while (connection.isActive) {
+                val frame = prioritizer.receive()
+                frame.closeOnError { connection.sendFrame(frame) }
+            }
         }
         scope.launch {
             while (connection.isActive) {

@@ -53,7 +53,7 @@ allprojects {
     }
 }
 
-//true when on CI, and false when local dev. Needed for native build configuration
+//true when on CI, and false when local dev. Needed for build configuration
 val ciRun = System.getenv("CI") == "true"
 
 //configure main host, for which jvm and js tests are enabled, true if locally, or linux on CI
@@ -62,16 +62,16 @@ val isMainHost: Boolean = !ciRun || HostManager.hostIsLinux
 // can be: macos, ios, watchos, tvos. If provided, compile and test only those targets
 val macTargetsCompilation: String? by project
 
-println("Configuration: CI=${System.getenv("CI")}, ciRun=$ciRun, isMainHost=$isMainHost, macTargetsCompilation=$macTargetsCompilation")
+println("Configuration: ciRun=$ciRun, isMainHost=$isMainHost, macTargetsCompilation=$macTargetsCompilation")
 
 val Project.publicationNames: Array<String>
     get() {
         val publishing: PublishingExtension by extensions
         val all = publishing.publications.names
-        //publish js, jvm, metadata, linuxX64 and kotlinMultiplatform only once
+        //publish js, jvm, linuxX64 and kotlinMultiplatform only once
         return when {
             isMainHost -> all
-            else       -> all - "js" - "jvm" - "metadata" - "kotlinMultiplatform" - "linuxX64"
+            else       -> all - "js" - "jvm" - "kotlinMultiplatform" - "linuxX64"
         }.toTypedArray()
     }
 
@@ -125,55 +125,55 @@ subprojects {
             }
 
             //native targets configuration
-            if (ciRun) {
-                fun KotlinNativeTarget.disableCompilation() {
-                    compilations.all { compileKotlinTask.enabled = false }
-                    binaries.all { linkTask.enabled = false }
-                }
+            val hostTargets = listOfNotNull(linuxX64(), macosX64(), if (supportMingw) mingwX64() else null)
 
-                val hostTargets = listOfNotNull(linuxX64(), macosX64(), if (supportMingw) mingwX64() else null)
+            val iosTargets = listOf(iosArm32(), iosArm64(), iosX64())
+            val tvosTargets = listOf(tvosArm64(), tvosX64())
+            val watchosTargets = listOf(watchosArm32(), watchosArm64(), watchosX86())
+            val nativeTargets = hostTargets + iosTargets + tvosTargets + watchosTargets
 
-                val iosTargets = listOf(iosArm32(), iosArm64(), iosX64())
-                val tvosTargets = listOf(tvosArm64(), tvosX64())
-                val watchosTargets = listOf(watchosArm32(), watchosArm64(), watchosX86())
-                val nativeTargets = hostTargets + iosTargets + tvosTargets + watchosTargets
+            val nativeMain by sourceSets.creating {
+                dependsOn(sourceSets["commonMain"])
+            }
+            val nativeTest by sourceSets.creating {
+                dependsOn(sourceSets["commonTest"])
+            }
 
-                val nativeMain by sourceSets.creating {
-                    dependsOn(sourceSets["commonMain"])
-                }
-                val nativeTest by sourceSets.creating {
-                    dependsOn(sourceSets["commonTest"])
-                }
+            nativeTargets.forEach {
+                sourceSets["${it.name}Main"].dependsOn(nativeMain)
+                sourceSets["${it.name}Test"].dependsOn(nativeTest)
+            }
 
-                nativeTargets.forEach {
-                    sourceSets["${it.name}Main"].dependsOn(nativeMain)
-                    sourceSets["${it.name}Test"].dependsOn(nativeTest)
-                }
+            fun KotlinNativeTarget.disableCompilation() {
+                compilations.all { compileKotlinTask.enabled = false }
+                binaries.all { linkTask.enabled = false }
+            }
 
-                //disable cross compilation of linux target on non linux hosts
-                if (!HostManager.hostIsLinux) linuxX64().disableCompilation()
+            //disable cross compilation of linux target on non linux hosts
+            if (!HostManager.hostIsLinux) linuxX64().disableCompilation()
 
-                //disable compilation of part of mac targets
-                if (HostManager.hostIsMac) when (macTargetsCompilation) {
-                    "macos"                  -> iosTargets + tvosTargets + watchosTargets
-                    "ios", "watchos", "tvos" -> {
-                        //disable test compilation for macos, but leave main to compile examples and playground
-                        macosX64 {
-                            compilations.all { if (name == "test") compileKotlinTask.enabled = false }
-                            binaries.all { linkTask.enabled = false }
-                        }
-                        when (macTargetsCompilation) {
-                            "ios"     -> tvosTargets + watchosTargets
-                            "watchos" -> iosTargets + tvosTargets
-                            "tvos"    -> iosTargets + watchosTargets
-                            else      -> emptyList()
-                        }
+            //disable compilation of part of mac targets
+            if (HostManager.hostIsMac) when (macTargetsCompilation) {
+                "macos"                  -> iosTargets + tvosTargets + watchosTargets
+                "ios", "watchos", "tvos" -> {
+                    //disable test compilation for macos, but leave main to compile examples and playground
+                    macosX64 {
+                        compilations.all { if (name == "test") compileKotlinTask.enabled = false }
+                        binaries.all { linkTask.enabled = false }
                     }
-                    else                     -> emptyList()
-                }.forEach(KotlinNativeTarget::disableCompilation)
+                    when (macTargetsCompilation) {
+                        "ios"     -> tvosTargets + watchosTargets
+                        "watchos" -> iosTargets + tvosTargets
+                        "tvos"    -> iosTargets + watchosTargets
+                        else      -> emptyList()
+                    }
+                }
+                else                     -> emptyList()
+            }.forEach(KotlinNativeTarget::disableCompilation)
 
-                //run tests on release + mimalloc to reduce tests execution time
-                //compilation is slower in that mode, but work with buffers is much faster
+            //run tests on release + mimalloc to reduce tests execution time
+            //compilation is slower in that mode, but work with buffers is much faster
+//            if (ciRun) {
                 targets.all {
                     if (this is KotlinNativeTargetWithTests<*>) {
                         binaries.test(listOf(RELEASE))
@@ -183,14 +183,7 @@ subprojects {
                         }
                     }
                 }
-            } else {
-                //if not on CI, use only one native target same as host, DON'T PUBLISH IN THAT MODE LOCALLY!!!
-                when {
-                    HostManager.hostIsLinux                 -> linuxX64("native")
-                    HostManager.hostIsMingw && supportMingw -> mingwX64("native")
-                    HostManager.hostIsMac                   -> macosX64("native")
-                }
-            }
+//            }
         }
 
         //common configuration

@@ -18,7 +18,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
 import kotlinx.coroutines.flow.*
 
-@OptIn(ExperimentalCoroutinesApi::class)
 actual class MessageApi(
     private val messages: Messages,
     private val chats: Chats,
@@ -39,6 +38,7 @@ actual class MessageApi(
         return messages.takeLast(chatId, limit)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     actual fun messages(chatId: Int, fromMessageId: Int): Flow<Message> = flow {
         messages.takeAfter(chatId, fromMessageId).forEach { emit(it) }
         emitAll(channelFlow<Message> {

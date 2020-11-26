@@ -25,6 +25,7 @@ import io.rsocket.kotlin.*
 import io.rsocket.kotlin.transport.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
+import kotlin.native.concurrent.*
 
 @Suppress("FunctionName")
 @OptIn(DangerousInternalIoApi::class)
@@ -40,8 +41,8 @@ internal constructor(
     override val job: Job = SupervisorJob(parentJob)
 
     override suspend fun connect(): Connection {
-        val clientChannel = Channel<ByteReadPacket>(Channel.UNLIMITED)
-        val serverChannel = Channel<ByteReadPacket>(Channel.UNLIMITED)
+        val clientChannel = SafeChannel<ByteReadPacket>(Channel.UNLIMITED)
+        val serverChannel = SafeChannel<ByteReadPacket>(Channel.UNLIMITED)
         val connectionJob = Job(job)
         val clientConnection = LocalConnection(serverChannel, clientChannel, pool, connectionJob)
         val serverConnection = LocalConnection(clientChannel, serverChannel, pool, connectionJob)
@@ -49,8 +50,13 @@ internal constructor(
         return clientConnection
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     override fun start(accept: suspend (Connection) -> Unit): Job = GlobalScope.launch(job) {
         connections.consumeEach { launch(job) { accept(it) } }
     }
 }
+
+@SharedImmutable
+private val onUndeliveredCloseable: (Closeable) -> Unit = Closeable::close
+
+@Suppress("FunctionName")
+private fun <E : Closeable> SafeChannel(capacity: Int): Channel<E> = Channel(capacity, onUndeliveredElement = onUndeliveredCloseable)
