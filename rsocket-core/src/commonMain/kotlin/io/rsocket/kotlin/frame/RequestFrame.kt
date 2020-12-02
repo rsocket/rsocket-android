@@ -22,7 +22,7 @@ import io.ktor.utils.io.core.*
 import io.rsocket.kotlin.frame.io.*
 import io.rsocket.kotlin.payload.*
 
-internal class RequestFrame(
+class RequestFrame(
     override val type: FrameType,
     override val streamId: Int,
     val follows: Boolean,
@@ -86,7 +86,7 @@ internal fun RequestStreamFrame(streamId: Int, initialRequestN: Int, payload: Pa
 internal fun RequestChannelFrame(streamId: Int, initialRequestN: Int, payload: Payload): RequestFrame =
     RequestFrame(FrameType.RequestChannel, streamId, false, false, false, initialRequestN, payload)
 
-internal fun NextPayloadFrame(streamId: Int, payload: Payload): RequestFrame =
+fun NextPayloadFrame(streamId: Int, payload: Payload): RequestFrame =
     RequestFrame(FrameType.Payload, streamId, false, false, true, 0, payload)
 
 internal fun CompletePayloadFrame(streamId: Int): RequestFrame =

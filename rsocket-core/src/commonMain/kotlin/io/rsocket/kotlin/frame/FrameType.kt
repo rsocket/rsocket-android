@@ -18,7 +18,7 @@ package io.rsocket.kotlin.frame
 
 import io.rsocket.kotlin.frame.io.*
 
-internal enum class FrameType(val encodedType: Int, flags: Int = Flags.Empty) {
+enum class FrameType(val encodedType: Int, flags: Int = Flags.Empty) {
     Reserved(0x00),
 
     //CONNECTION

@@ -14,6 +14,14 @@
  * limitations under the License.
  */
 
-//fun main() {
-//    benchmark()
-//}
+import kotlin.test.*
+
+class FramesTest {
+    @Test
+    fun test() {
+        repeat(5) {
+            println("Run: $it")
+            benchmark()
+        }
+    }
+}

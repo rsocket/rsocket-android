@@ -14,49 +14,68 @@
  * limitations under the License.
  */
 
+@file:OptIn(ExperimentalTime::class, DangerousInternalIoApi::class)
+
+import io.ktor.utils.io.core.internal.*
 import io.rsocket.kotlin.frame.*
 import io.rsocket.kotlin.payload.*
+import kotlin.native.concurrent.*
 import kotlin.time.*
 
-fun payload(i: Int): Payload = Payload("data-$i".repeat(1000), "metadata-$i".repeat(1000))
+private fun dt(t: String, i: Int): String = "$t-$i".repeat(1000)
+private fun db(t: String, i: Int): ByteArray = ByteArray(10000) { (i + it + t.length).toByte() }
 
-@OptIn(ExperimentalTime::class)
+@SharedImmutable
+private val iterations = 1000
+
+@SharedImmutable
+private val datas = (0..iterations).map { dt("data", it) }
+
+@SharedImmutable
+private val metadatas = (0..iterations).map { dt("metadata", it) }
+
+private inline fun <T> iterate(block: (Int) -> T): List<T> = (1..iterations).map(block)
+
+fun payload(i: Int): Payload = buildPayload {
+    data(datas[i])
+    metadata(metadatas[i])
+}
+
 data class Stats(val max: Duration, val min: Duration, val avg: Duration)
 
-@OptIn(ExperimentalTime::class)
 fun benchmark() {
-    val iterations = 1000
 
     //just work
-    (1..iterations * 10).map {
-        NextPayloadFrame(1, payload(it)).toPacket().toFrame()
+    repeat(10) {
+        iterate {
+            NextPayloadFrame(1, payload(it)).toPacket(ChunkBuffer.Pool).readFrame(ChunkBuffer.Pool)
+        }
     }
 
     //benchmark
     val result = (1..10).map {
-        val list = (1..iterations).map {
+        val list = iterate {
             val frame = NextPayloadFrame(1, payload(it))
-            val (packet, writeDuration) = measureTimedValue { frame.toPacket() }
-            val (_, readDuration) = measureTimedValue { packet.toFrame() }
+            val (packet, writeDuration) = measureTimedValue { frame.toPacket(ChunkBuffer.Pool) }
+            val (_, readDuration) = measureTimedValue { packet.readFrame(ChunkBuffer.Pool) }
             writeDuration to readDuration
         }
 
         val writeStats = list.map { it.first }.stats
         val readStats = list.map { it.second }.stats
 
-        println()
-        println("Run($it):")
-        println("write: $writeStats")
-        println("read:  $readStats")
+//        println()
+//        println("Run($it):")
+//        println("write: $writeStats")
+//        println("read:  $readStats")
         writeStats to readStats
     }
 
-    println()
     printStats("write", result.map { it.first })
     printStats("read ", result.map { it.second })
+    println()
 }
 
-@OptIn(ExperimentalTime::class)
 val List<Duration>.stats
     get() = Stats(
         max = maxOrNull()!!,
@@ -83,7 +102,7 @@ fun printStats(tag: String, list: List<Stats>) {
     val min = list.minStats
     val max = list.maxStats
     println("Result ranges for '$tag':")
-    println("max: (${min.max} ... ${max.max})")
-    println("min: (${min.min} ... ${max.min})")
-    println("avg: (${min.avg} ... ${max.avg})")
+//    println("max: (${min.max.toLongNanoseconds()} ... ${max.max.toLongNanoseconds()})")
+//    println("min: (${min.min.toLongNanoseconds()} ... ${max.min.toLongNanoseconds()})")
+    println("avg: (${min.avg.toLongNanoseconds()} ... ${max.avg.toLongNanoseconds()})")
 }
