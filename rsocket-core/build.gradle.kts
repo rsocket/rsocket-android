@@ -41,7 +41,3 @@ kotlin {
         }
     }
 }
-
-atomicfu {
-    variant = "FU"
-}

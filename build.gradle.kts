@@ -45,14 +45,6 @@ plugins {
     id("com.jfrog.artifactory") apply false
 }
 
-allprojects {
-    repositories {
-        mavenCentral()
-        jcenter()
-        maven("https://dl.bintray.com/kotlin/kotlinx")
-    }
-}
-
 //true when on CI, and false when local dev. Needed for build configuration
 val ciRun = System.getenv("CI") == "true"
 
@@ -90,7 +82,10 @@ subprojects {
 
             jvm {
                 compilations.all {
-                    kotlinOptions.jvmTarget = "1.6"
+                    kotlinOptions {
+                        jvmTarget = "1.6"
+                        useIR = true
+                    }
                 }
                 testRuns.all {
                     executionTask.configure {

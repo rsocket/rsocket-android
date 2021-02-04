@@ -22,10 +22,6 @@ plugins {
     kotlin("plugin.allopen")
 }
 
-repositories {
-    maven("https://repo.spring.io/libs-snapshot")
-}
-
 val rsocketJavaVersion: String by rootProject
 val kotlinxCoroutinesVersion: String by rootProject
 val kotlinxBenchmarkVersion: String by rootProject
