@@ -57,7 +57,7 @@ internal constructor(
         return clientConnection
     }
 
-    override fun start(accept: suspend (Connection) -> Unit): Job = GlobalScope.launch(job) {
+    override fun start(accept: suspend (Connection) -> Unit): Job = GlobalScope.launch(job + Dispatchers.Unconfined) {
         connections.consumeEach { launch(job) { accept(it) } }
     }
 }

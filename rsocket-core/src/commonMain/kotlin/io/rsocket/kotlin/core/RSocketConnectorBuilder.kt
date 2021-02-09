@@ -24,6 +24,21 @@ import kotlinx.coroutines.*
 
 public class RSocketConnectorBuilder internal constructor() {
     public var loggerFactory: LoggerFactory = DefaultLoggerFactory
+    public var maxFragmentSize: Int = 0
+        set(value) {
+            require(value == 0 || value >= 64) {
+                "maxFragmentSize should be zero (no fragmentation) or greater than or equal to 64, but was $value"
+            }
+            field = value
+        }
+    public var connectionBuffer: Int = 64
+        set(value) {
+            require(value >= 0)
+            field = value
+        }
+
+    //    Dispatchers.Unconfined //NATIVE
+    public var requestDispatcher: CoroutineDispatcher = Dispatchers.Default
 
     private val connectionConfig: ConnectionConfigBuilder = ConnectionConfigBuilder()
     private val interceptors: InterceptorsBuilder = InterceptorsBuilder()
@@ -96,11 +111,14 @@ public class RSocketConnectorBuilder internal constructor() {
     }
 
     internal fun build(): RSocketConnector = RSocketConnector(
-        loggerFactory,
-        interceptors.build(),
-        connectionConfig.producer(),
-        acceptor ?: defaultAcceptor,
-        reconnectPredicate
+        loggerFactory = loggerFactory,
+        maxFragmentSize = maxFragmentSize,
+        connectionBuffer = connectionBuffer,
+        requestDispatcher = requestDispatcher,
+        interceptors = interceptors.build(),
+        connectionConfigProvider = connectionConfig.producer(),
+        acceptor = acceptor ?: defaultAcceptor,
+        reconnectPredicate = reconnectPredicate
     )
 
     private companion object {

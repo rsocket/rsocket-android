@@ -21,9 +21,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
 import kotlin.native.concurrent.*
 
-internal inline fun <T> Closeable.closeOnError(block: () -> T): T {
+internal inline fun <T : Closeable, R> T.closeOnError(block: (T) -> R): R {
     try {
-        return block()
+        return block(this)
     } catch (e: Throwable) {
         close()
         throw e
@@ -57,4 +57,10 @@ internal fun <E : Closeable> SendChannel<E>.safeOffer(element: E) {
         element.close()
         throw cause
     }
+}
+
+internal fun Channel<out Closeable>.fullClose(cause: Throwable?) {
+    closeReceivedElements()
+    close(cause)
+    cancelConsumed(cause)
 }

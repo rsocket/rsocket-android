@@ -17,6 +17,7 @@
 package io.rsocket.kotlin.internal
 
 import io.rsocket.kotlin.*
+import io.rsocket.kotlin.core.*
 import io.rsocket.kotlin.frame.*
 import io.rsocket.kotlin.keepalive.*
 import io.rsocket.kotlin.payload.*
@@ -28,14 +29,16 @@ import kotlin.test.*
 import kotlin.time.*
 
 class RSocketRequesterTest : TestWithConnection(), TestWithLeakCheck {
-    private lateinit var requester: RSocketRequester
+    private lateinit var requester: RSocket
 
     override suspend fun before() {
         super.before()
 
-        val state = RSocketState(connection, KeepAlive(1000.seconds, 1000.seconds))
-        requester = RSocketRequester(state, StreamId.client())
-        state.start(RSocketRequestHandler { })
+        requester = connection.connect(
+            false, 0, Int.MAX_VALUE, Dispatchers.Unconfined, InterceptorsBuilder().build(),
+            ConnectionConfig(KeepAlive(1000.seconds, 1000.seconds), PayloadMimeType(), Payload.Empty),
+            ConnectionAcceptor { RSocketRequestHandler { } }
+        )
     }
 
     @Test
@@ -127,7 +130,7 @@ class RSocketRequesterTest : TestWithConnection(), TestWithLeakCheck {
     @Test
     fun testStreamRequestByFixed() = test {
         connection.test {
-            val flow = requester.requestStream(Payload.Empty).flowOn(PrefetchStrategy(2, 0)).take(4)
+            val flow = requester.requestStream(Payload.Empty).flowOn(PrefetchStrategy(2, 0))
 
             expectNoEventsIn(200)
             flow.launchIn(connection)
@@ -162,7 +165,7 @@ class RSocketRequesterTest : TestWithConnection(), TestWithLeakCheck {
     @Test
     fun testStreamRequestBy() = test {
         connection.test {
-            val flow = requester.requestStream(Payload.Empty).flowOn(PrefetchStrategy(5, 2)).take(6)
+            val flow = requester.requestStream(Payload.Empty).flowOn(PrefetchStrategy(5, 2))
 
             expectNoEventsIn(200)
             flow.launchIn(connection)
@@ -195,6 +198,47 @@ class RSocketRequesterTest : TestWithConnection(), TestWithLeakCheck {
 
             expectNoEventsIn(200)
             connection.sendToReceiver(NextCompletePayloadFrame(1, Payload.Empty))
+
+            expectNoEventsIn(200)
+        }
+    }
+
+    @Test
+    fun testStreamRequestCancel() = test {
+        connection.test {
+            val flow = requester.requestStream(Payload.Empty).flowOn(PrefetchStrategy(1, 0)).take(3)
+
+            expectNoEventsIn(200)
+            flow.launchIn(connection)
+
+            expectFrame { frame ->
+                assertTrue(frame is RequestFrame)
+                assertEquals(FrameType.RequestStream, frame.type)
+                assertEquals(1, frame.initialRequest)
+            }
+
+            expectNoEventsIn(200)
+            connection.sendToReceiver(NextPayloadFrame(1, Payload.Empty))
+
+            expectFrame { frame ->
+                assertTrue(frame is RequestNFrame)
+                assertEquals(1, frame.requestN)
+            }
+
+            expectNoEventsIn(200)
+            connection.sendToReceiver(NextPayloadFrame(1, Payload.Empty))
+
+            expectFrame { frame ->
+                assertTrue(frame is RequestNFrame)
+                assertEquals(1, frame.requestN)
+            }
+
+            expectNoEventsIn(200)
+            connection.sendToReceiver(NextPayloadFrame(1, Payload.Empty))
+
+            expectFrame { frame ->
+                assertTrue(frame is CancelFrame)
+            }
 
             expectNoEventsIn(200)
         }

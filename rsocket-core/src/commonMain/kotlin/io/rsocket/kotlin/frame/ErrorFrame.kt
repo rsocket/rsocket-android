@@ -18,39 +18,31 @@ package io.rsocket.kotlin.frame
 
 import io.ktor.utils.io.core.*
 import io.rsocket.kotlin.*
-import io.rsocket.kotlin.frame.io.*
 
 internal class ErrorFrame(
     override val streamId: Int,
-    val throwable: Throwable,
-    val data: ByteReadPacket? = null,
+    val throwable: Throwable
 ) : Frame(FrameType.Error) {
     override val flags: Int get() = 0
     val errorCode get() = (throwable as? RSocketError)?.errorCode ?: ErrorCode.ApplicationError
 
-    override fun release() {
-        data?.release()
-    }
+    override fun release(): Unit = Unit
 
     override fun BytePacketBuilder.writeSelf() {
         writeInt(errorCode)
-        when (data) {
-            null -> writeText(throwable.message ?: "")
-            else -> writePacket(data)
-        }
+        writeText(throwable.message ?: "")
     }
 
     override fun StringBuilder.appendFlags(): Unit = Unit
     override fun StringBuilder.appendSelf() {
         append("\nError code: ").append(errorCode).append("[").append(throwable::class.simpleName).append("]")
         if (throwable.message != null) append(" Message: ").append(throwable.message)
-        if (data != null) appendPacket("Data:", data)
+        append("\n").append(throwable.stackTraceToString()) //TODO
     }
 }
 
 internal fun ByteReadPacket.readError(streamId: Int): ErrorFrame {
     val errorCode = readInt()
-    val data = copy()
     val message = readText()
-    return ErrorFrame(streamId, RSocketError(streamId, errorCode, message), data)
+    return ErrorFrame(streamId, RSocketError(streamId, errorCode, message))
 }

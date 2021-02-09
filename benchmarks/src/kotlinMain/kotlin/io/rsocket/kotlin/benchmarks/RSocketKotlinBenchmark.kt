@@ -42,7 +42,10 @@ class RSocketKotlinBenchmark : RSocketBenchmark<Payload>() {
         payloadsFlow = flow { repeat(5000) { emit(payloadCopy()) } }
 
         val localServer = LocalServer()
-        server = RSocketServer().bind(localServer) {
+        server = RSocketServer {
+            connectionBuffer = Int.MAX_VALUE
+            requestDispatcher = Dispatchers.Unconfined
+        }.bind(localServer) {
             RSocketRequestHandler {
                 requestResponse {
                     it.release()
@@ -59,7 +62,10 @@ class RSocketKotlinBenchmark : RSocketBenchmark<Payload>() {
             }
         }
         client = runBlocking {
-            RSocketConnector().connect(localServer)
+            RSocketConnector {
+                connectionBuffer = Int.MAX_VALUE
+                requestDispatcher = Dispatchers.Unconfined
+            }.connect(localServer)
         }
     }
 

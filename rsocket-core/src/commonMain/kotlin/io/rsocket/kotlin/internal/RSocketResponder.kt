@@ -16,83 +16,98 @@
 
 package io.rsocket.kotlin.internal
 
+import io.ktor.utils.io.core.*
 import io.rsocket.kotlin.*
-import io.rsocket.kotlin.frame.*
-import io.rsocket.kotlin.internal.flow.*
+import io.rsocket.kotlin.internal.handler.*
+import io.rsocket.kotlin.payload.*
 import kotlinx.coroutines.*
 
 internal class RSocketResponder(
-    private val state: RSocketState,
+    private val connection: PriorityConnection,
+    private val requestScope: CoroutineScope,
     private val requestHandler: RSocket,
-) : Cancellable by state {
+) {
 
-    fun handleMetadataPush(frame: MetadataPushFrame) {
-        state.launch {
-            requestHandler.metadataPush(frame.metadata)
-        }.invokeOnCompletion {
-            frame.release()
+    fun handleMetadataPush(metadata: ByteReadPacket): Job = requestScope.launch {
+        try {
+            requestHandler.metadataPush(metadata)
+        } finally {
+            metadata.release()
         }
     }
 
-    fun handleFireAndForget(frame: RequestFrame) {
-        state.launch {
-            requestHandler.fireAndForget(frame.payload)
-        }.invokeOnCompletion {
-            frame.release()
+    fun handleFireAndForget(payload: Payload, handler: ResponderFireAndForgetFrameHandler): Job = requestScope.launch {
+        try {
+            requestHandler.fireAndForget(payload)
+        } finally {
+            handler.onSendComplete()
+            payload.release()
         }
     }
 
-    fun handlerRequestResponse(frame: RequestFrame): Unit = with(state) {
-        val streamId = frame.streamId
-        launchCancelable(streamId) {
-            val response = requestOrCancel(streamId) {
-                requestHandler.requestResponse(frame.payload)
-            } ?: return@launchCancelable
-            if (isActive) send(NextCompletePayloadFrame(streamId, response))
-        }.invokeOnCompletion {
-            frame.release()
+    fun handleRequestResponse(payload: Payload, id: Int, handler: ResponderRequestResponseFrameHandler): Job = requestScope.launch {
+        handler.sendOrFail(this, id, payload) {
+            val response = requestHandler.requestResponse(payload)
+            connection.sendNextCompletePayload(id, response)
         }
     }
 
-    fun handleRequestStream(initFrame: RequestFrame): Unit = with(state) {
-        val streamId = initFrame.streamId
-        launchCancelable(streamId) {
-            val response = requestOrCancel(streamId) {
-                requestHandler.requestStream(initFrame.payload)
-            } ?: return@launchCancelable
-            response.collectLimiting(streamId, initFrame.initialRequest)
-        }.invokeOnCompletion {
-            initFrame.release()
+    fun handleRequestStream(payload: Payload, id: Int, handler: ResponderRequestStreamFrameHandler): Job = requestScope.launch {
+        handler.sendOrFail(this, id, payload) {
+            requestHandler.requestStream(payload).collectLimiting(handler.limiter) { connection.sendNextPayload(id, it) }
+            connection.sendCompletePayload(id)
         }
     }
 
-    fun handleRequestChannel(initFrame: RequestFrame): Unit = with(state) {
-        val streamId = initFrame.streamId
-        val receiver = createReceiverFor(streamId)
-
-        val request = RequestChannelResponderFlow(streamId, receiver, state)
-
-        launchCancelable(streamId) {
-            val response = requestOrCancel(streamId) {
-                requestHandler.requestChannel(initFrame.payload, request)
-            } ?: return@launchCancelable
-            response.collectLimiting(streamId, initFrame.initialRequest)
-        }.invokeOnCompletion {
-            initFrame.release()
-            receiver.closeReceivedElements()
-            if (it != null) receiver.cancelConsumed(it) //TODO check it
+    @OptIn(InternalCoroutinesApi::class)
+    @ExperimentalStreamsApi
+    fun handleRequestChannel(payload: Payload, id: Int, handler: ResponderRequestChannelFrameHandler): Job = requestScope.launch {
+        val payloads = requestFlow { strategy, initialRequest ->
+            handler.receiveOrCancel(requestScope, id) {
+                connection.sendRequestN(id, initialRequest)
+                emitAllWithRequestN(handler.channel, strategy) { connection.sendRequestN(id, it) }
+            }
+        }
+        handler.sendOrFail(this, id, payload) {
+            requestHandler.requestChannel(payload, payloads).collectLimiting(handler.limiter) { connection.sendNextPayload(id, it) }
+            connection.sendCompletePayload(id)
         }
     }
 
-    private inline fun <T : Any> CoroutineScope.requestOrCancel(streamId: Int, block: () -> T): T? =
+    private suspend inline fun SendFrameHandler.sendOrFail(
+        scope: CoroutineScope,
+        id: Int,
+        payload: Payload,
+        block: () -> Unit
+    ) {
         try {
             block()
-        } catch (e: Throwable) {
-            if (isActive) {
-                state.send(ErrorFrame(streamId, e))
-                cancel("Request handling failed", e) //KLUDGE: can be related to IR, because using `throw` fails on JS IR and Native
-            }
-            null
+            onSendComplete()
+        } catch (cause: Throwable) {
+//            println("RES_FAIL: ${cause.stackTraceToString()}")
+            val isFailed = onSendFailed(cause)
+            if (scope.isActive && isFailed) connection.sendError(id, cause)
+            fail(cause)
+        } finally {
+            payload.release()
         }
+    }
+
+    private suspend inline fun <T> ReceiveFrameHandler.receiveOrCancel(
+        scope: CoroutineScope,
+        id: Int,
+        block: () -> T
+    ): T {
+        try {
+            val result = block()
+            onReceiveComplete()
+            return result
+        } catch (cause: Throwable) {
+//            println("RES_CANCEL: ${cause.stackTraceToString()}")
+            val isCancelled = onReceiveCancelled(cause)
+            if (scope.isActive && isCancelled) connection.sendCancel(id)
+            throw cause
+        }
+    }
 
 }

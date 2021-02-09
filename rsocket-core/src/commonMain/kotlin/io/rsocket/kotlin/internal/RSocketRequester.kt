@@ -19,54 +19,138 @@ package io.rsocket.kotlin.internal
 import io.ktor.utils.io.core.*
 import io.rsocket.kotlin.*
 import io.rsocket.kotlin.frame.*
-import io.rsocket.kotlin.internal.flow.*
+import io.rsocket.kotlin.frame.io.*
+import io.rsocket.kotlin.internal.handler.*
 import io.rsocket.kotlin.payload.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.*
 import kotlinx.coroutines.flow.*
 
 internal class RSocketRequester(
-    private val state: RSocketState,
-    private val streamId: StreamId,
-) : RSocket, Cancellable by state {
+    override val job: CompletableJob,
+    private val pool: BufferPool,
+    private val requestScope: CoroutineScope,
+    private val connection: PriorityConnection,
+    private val streamStorage: StreamStorage
+) : RSocket {
+    override suspend fun metadataPush(metadata: ByteReadPacket) {
+        checkActive(metadata)
 
-    override suspend fun metadataPush(metadata: ByteReadPacket): Unit = metadata.closeOnError {
-        checkAvailable()
-        state.sendPrioritized(MetadataPushFrame(metadata))
-    }
-
-    override suspend fun fireAndForget(payload: Payload): Unit = payload.closeOnError {
-        val streamId = createStream()
-        state.send(RequestFireAndForgetFrame(streamId, payload))
-    }
-
-    override suspend fun requestResponse(payload: Payload): Payload = with(state) {
-        payload.closeOnError {
-            val streamId = createStream()
-            val receiver = createReceiverFor(streamId)
-            send(RequestResponseFrame(streamId, payload))
-            consumeReceiverFor(streamId) {
-                receiver.receive().payload //TODO fragmentation
-            }
+        metadata.closeOnError {
+            connection.sendMetadataPush(metadata)
         }
     }
 
-    override fun requestStream(payload: Payload): Flow<Payload> = RequestStreamRequesterFlow(payload, this, state)
+    override suspend fun fireAndForget(payload: Payload) {
+        checkActive(payload)
 
-    override fun requestChannel(initPayload: Payload, payloads: Flow<Payload>): Flow<Payload> =
-        RequestChannelRequesterFlow(initPayload, payloads, this, state)
+        val id = streamStorage.nextId()
 
-    fun createStream(): Int {
-        checkAvailable()
-        return nextStreamId()
+        try {
+            connection.sendRequestPayload(FrameType.RequestFnF, id, payload)
+        } catch (cause: Throwable) {
+            payload.release()
+            if (job.isActive) connection.sendCancel(id)
+            throw cause
+        }
     }
 
-    private fun nextStreamId(): Int = streamId.next(state.receivers)
+    override suspend fun requestResponse(payload: Payload): Payload {
+        checkActive(payload)
+
+        val id = streamStorage.nextId()
+
+        val deferred = CompletableDeferred<Payload>()
+        val handler = RequesterRequestResponseFrameHandler(id, streamStorage, pool, deferred)
+        streamStorage.save(id, handler)
+
+        return handler.receiveOrCancel(id, payload) {
+            connection.sendRequestPayload(FrameType.RequestResponse, id, payload)
+            deferred.await()
+        }
+    }
+
+    @ExperimentalStreamsApi
+    override fun requestStream(payload: Payload): Flow<Payload> = requestFlow { strategy, initialRequest ->
+        checkActive(payload)
+
+        val id = streamStorage.nextId()
+
+        val channel = SafeChannel<Payload>(Channel.UNLIMITED)
+        val handler = RequesterRequestStreamFrameHandler(id, streamStorage, pool, channel)
+        streamStorage.save(id, handler)
+
+        handler.receiveOrCancel(id, payload) {
+            connection.sendRequestPayload(FrameType.RequestStream, id, payload, initialRequest)
+            emitAllWithRequestN(channel, strategy) { connection.sendRequestN(id, it) }
+        }
+    }
+
+    @ExperimentalStreamsApi
+    override fun requestChannel(initPayload: Payload, payloads: Flow<Payload>): Flow<Payload> = requestFlow { strategy, initialRequest ->
+        checkActive(initPayload)
+
+        val id = streamStorage.nextId()
+
+        val channel = SafeChannel<Payload>(Channel.UNLIMITED)
+        val limiter = Limiter(0)
+        val sender = Job(requestScope.coroutineContext[Job])
+        val handler = RequesterRequestChannelFrameHandler(id, streamStorage, pool, limiter, sender, channel)
+        streamStorage.save(id, handler)
+
+        handler.receiveOrCancel(id, initPayload) {
+            connection.sendRequestPayload(FrameType.RequestChannel, id, initPayload, initialRequest)
+            requestScope.launch(sender) {
+                handler.sendOrFail(id) {
+                    payloads.collectLimiting(limiter) { connection.sendNextPayload(id, it) }
+                    connection.sendCompletePayload(id)
+                }
+            }
+            emitAllWithRequestN(channel, strategy) { connection.sendRequestN(id, it) }
+        }
+    }
+
+
+    private suspend inline fun SendFrameHandler.sendOrFail(
+        id: Int,
+        block: () -> Unit
+    ) {
+        try {
+            block()
+            onSendComplete()
+        } catch (cause: Throwable) {
+//            println("REQ_FAIL: ${cause.stackTraceToString()}")
+            val isFailed = onSendFailed(cause)
+            if (job.isActive && isFailed) connection.sendError(id, cause)
+            fail(cause)
+        }
+    }
+
+    private suspend inline fun <T> ReceiveFrameHandler.receiveOrCancel(
+        id: Int,
+        payload: Payload,
+        block: () -> T
+    ): T {
+        try {
+            val result = block()
+            onReceiveComplete()
+            return result
+        } catch (cause: Throwable) {
+//            println("REQ_CANCEL: ${cause.stackTraceToString()}")
+            payload.release()
+            val isCancelled = onReceiveCancelled(cause)
+            if (job.isActive && isCancelled) connection.sendCancel(id)
+            throw cause
+        }
+    }
 
     @OptIn(InternalCoroutinesApi::class)
-    private fun checkAvailable() {
-        if (isActive) return
+    private fun checkActive(closeable: Closeable) {
+        if (job.isActive) return
+
+        closeable.close()
+
         val error = job.getCancellationException()
         throw error.cause ?: error
     }
-
 }

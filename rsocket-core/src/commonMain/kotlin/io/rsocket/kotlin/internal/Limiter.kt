@@ -14,42 +14,39 @@
  * limitations under the License.
  */
 
-package io.rsocket.kotlin.internal.flow
+package io.rsocket.kotlin.internal
 
-import io.rsocket.kotlin.frame.*
-import io.rsocket.kotlin.internal.*
 import io.rsocket.kotlin.payload.*
 import kotlinx.atomicfu.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-internal class LimitingFlowCollector(
-    private val state: RSocketState,
-    private val streamId: Int,
-    initial: Int,
-) : FlowCollector<Payload> {
+internal suspend inline fun Flow<Payload>.collectLimiting(limiter: Limiter, crossinline action: suspend (value: Payload) -> Unit) {
+    collect { payload ->
+        payload.closeOnError {
+            limiter.useRequest()
+            action(it)
+        }
+    }
+}
+
+internal class Limiter(initial: Int) {
     private val requests = atomic(initial)
     private val awaiter = atomic<CancellableContinuation<Unit>?>(null)
 
     fun updateRequests(n: Int) {
         if (n <= 0) return
-        requests.getAndAdd(n)
+        requests += n
         awaiter.getAndSet(null)?.resumeSafely()
     }
 
-    override suspend fun emit(value: Payload): Unit = value.closeOnError {
-        useRequest()
-        state.send(NextPayloadFrame(streamId, value))
-    }
+    suspend fun useRequest() {
+        if (requests.getAndDecrement() > 0) return
 
-    private suspend fun useRequest() {
-        if (requests.value <= 0) {
-            suspendCancellableCoroutine<Unit> {
-                awaiter.value = it
-                if (requests.value != 0) it.resumeSafely()
-            }
+        suspendCancellableCoroutine<Unit> {
+            awaiter.value = it
+            if (requests.value >= 0) it.resumeSafely()
         }
-        requests.decrementAndGet()
     }
 
     @OptIn(InternalCoroutinesApi::class)

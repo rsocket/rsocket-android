@@ -17,9 +17,25 @@
 package io.rsocket.kotlin.core
 
 import io.rsocket.kotlin.logging.*
+import kotlinx.coroutines.*
 
 public class RSocketServerBuilder internal constructor() {
     public var loggerFactory: LoggerFactory = DefaultLoggerFactory
+    public var maxFragmentSize: Int = 0
+        set(value) {
+            require(value == 0 || value >= 64) {
+                "maxFragmentSize should be zero (no fragmentation) or greater than or equal to 64, but was $value"
+            }
+            field = value
+        }
+    public var connectionBuffer: Int = 64
+        set(value) {
+            require(value >= 0)
+            field = value
+        }
+
+    //    Dispatchers.Unconfined //NATIVE
+    public var requestDispatcher: CoroutineDispatcher = Dispatchers.Default
 
     private val interceptors: InterceptorsBuilder = InterceptorsBuilder()
 
@@ -27,7 +43,13 @@ public class RSocketServerBuilder internal constructor() {
         interceptors.configure()
     }
 
-    internal fun build(): RSocketServer = RSocketServer(loggerFactory, interceptors.build())
+    internal fun build(): RSocketServer = RSocketServer(
+        loggerFactory = loggerFactory,
+        maxFragmentSize = maxFragmentSize,
+        connectionBuffer = connectionBuffer,
+        requestDispatcher = requestDispatcher,
+        interceptors = interceptors.build()
+    )
 }
 
 public fun RSocketServer(configure: RSocketServerBuilder.() -> Unit = {}): RSocketServer {
