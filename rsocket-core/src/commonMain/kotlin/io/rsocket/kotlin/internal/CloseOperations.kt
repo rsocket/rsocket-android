@@ -17,28 +17,15 @@
 package io.rsocket.kotlin.internal
 
 import io.ktor.utils.io.core.*
-import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
 import kotlin.native.concurrent.*
 
-internal inline fun <T> Closeable.closeOnError(block: () -> T): T {
+internal inline fun <T : Closeable, R> T.closeOnError(block: (T) -> R): R {
     try {
-        return block()
+        return block(this)
     } catch (e: Throwable) {
         close()
         throw e
-    }
-}
-
-internal fun ReceiveChannel<*>.cancelConsumed(cause: Throwable?) {
-    cancel(cause?.let { it as? CancellationException ?: CancellationException("Channel was consumed, consumer had failed", it) })
-}
-
-//TODO Can be removed after fix of https://github.com/Kotlin/kotlinx.coroutines/issues/2435
-internal fun ReceiveChannel<Closeable>.closeReceivedElements() {
-    try {
-        while (true) poll()?.close() ?: break
-    } catch (e: Throwable) {
     }
 }
 
@@ -48,13 +35,16 @@ private val onUndeliveredCloseable: (Closeable) -> Unit = Closeable::close
 @Suppress("FunctionName")
 internal fun <E : Closeable> SafeChannel(capacity: Int): Channel<E> = Channel(capacity, onUndeliveredElement = onUndeliveredCloseable)
 
-//TODO check after fix of https://github.com/Kotlin/kotlinx.coroutines/issues/2435
-// and https://github.com/Kotlin/kotlinx.coroutines/issues/974
-internal fun <E : Closeable> SendChannel<E>.safeOffer(element: E) {
+internal fun Channel<out Closeable>.fullClose(cause: Throwable?) {
+    closeReceivedElements()
+    close(cause) // proper channel close cause
+    cancel() // force call of onUndeliveredElement to release buffered elements
+}
+
+//TODO Can be removed after fix of https://github.com/Kotlin/kotlinx.coroutines/issues/2435
+private fun ReceiveChannel<Closeable>.closeReceivedElements() {
     try {
-        if (!offer(element)) element.close()
-    } catch (cause: Throwable) {
-        element.close()
-        throw cause
+        while (true) poll()?.close() ?: break
+    } catch (e: Throwable) {
     }
 }

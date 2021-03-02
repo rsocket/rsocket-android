@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-@file:Suppress("FunctionName")
-
 package io.rsocket.kotlin.frame
 
 import io.ktor.utils.io.core.*
@@ -72,25 +70,3 @@ internal fun ByteReadPacket.readRequest(pool: BufferPool, type: FrameType, strea
     val payload = readPayload(pool, flags)
     return RequestFrame(type, streamId, fragmentFollows, complete, next, initialRequest, payload)
 }
-
-//TODO rename or remove on fragmentation implementation
-internal fun RequestFireAndForgetFrame(streamId: Int, payload: Payload): RequestFrame =
-    RequestFrame(FrameType.RequestFnF, streamId, false, false, false, 0, payload)
-
-internal fun RequestResponseFrame(streamId: Int, payload: Payload): RequestFrame =
-    RequestFrame(FrameType.RequestResponse, streamId, false, false, false, 0, payload)
-
-internal fun RequestStreamFrame(streamId: Int, initialRequestN: Int, payload: Payload): RequestFrame =
-    RequestFrame(FrameType.RequestStream, streamId, false, false, false, initialRequestN, payload)
-
-internal fun RequestChannelFrame(streamId: Int, initialRequestN: Int, payload: Payload): RequestFrame =
-    RequestFrame(FrameType.RequestChannel, streamId, false, false, false, initialRequestN, payload)
-
-internal fun NextPayloadFrame(streamId: Int, payload: Payload): RequestFrame =
-    RequestFrame(FrameType.Payload, streamId, false, false, true, 0, payload)
-
-internal fun CompletePayloadFrame(streamId: Int): RequestFrame =
-    RequestFrame(FrameType.Payload, streamId, false, true, false, 0, Payload.Empty)
-
-internal fun NextCompletePayloadFrame(streamId: Int, payload: Payload): RequestFrame =
-    RequestFrame(FrameType.Payload, streamId, false, true, true, 0, payload)

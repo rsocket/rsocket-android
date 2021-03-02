@@ -44,7 +44,6 @@ class ErrorFrameTest : TestWithLeakCheck {
         assertEquals(ErrorCode.ApplicationError, frame.errorCode)
         assertTrue(frame.throwable is RSocketError.ApplicationError)
         assertEquals("d", frame.throwable.message)
-        assertEquals("d", frame.data?.readText())
     }
 
 }

@@ -14,10 +14,13 @@
  * limitations under the License.
  */
 
+@file:Suppress("FunctionName")
+
 package io.rsocket.kotlin.frame
 
 import io.ktor.utils.io.core.*
 import io.rsocket.kotlin.frame.io.*
+import io.rsocket.kotlin.payload.*
 import io.rsocket.kotlin.test.*
 import kotlin.test.*
 
@@ -34,3 +37,21 @@ fun ByteReadPacket.toFrameWithLength(): Frame {
 }
 
 fun Frame.loopFrame(): Frame = toPacket(InUseTrackingPool).readFrame(InUseTrackingPool)
+
+internal fun RequestFireAndForgetFrame(streamId: Int, payload: Payload): RequestFrame =
+    RequestFrame(FrameType.RequestFnF, streamId, false, false, false, 0, payload)
+
+internal fun RequestResponseFrame(streamId: Int, payload: Payload): RequestFrame =
+    RequestFrame(FrameType.RequestResponse, streamId, false, false, false, 0, payload)
+
+internal fun RequestStreamFrame(streamId: Int, initialRequestN: Int, payload: Payload): RequestFrame =
+    RequestFrame(FrameType.RequestStream, streamId, false, false, false, initialRequestN, payload)
+
+internal fun NextPayloadFrame(streamId: Int, payload: Payload): RequestFrame =
+    RequestFrame(FrameType.Payload, streamId, false, false, true, 0, payload)
+
+internal fun CompletePayloadFrame(streamId: Int): RequestFrame =
+    RequestFrame(FrameType.Payload, streamId, false, true, false, 0, Payload.Empty)
+
+internal fun NextCompletePayloadFrame(streamId: Int, payload: Payload): RequestFrame =
+    RequestFrame(FrameType.Payload, streamId, false, true, true, 0, payload)
