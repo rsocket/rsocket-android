@@ -165,20 +165,6 @@ subprojects {
                 }
                 else                     -> emptyList()
             }.forEach(KotlinNativeTarget::disableCompilation)
-
-            //run tests on release + mimalloc to reduce tests execution time
-            //compilation is slower in that mode, but work with buffers is much faster
-            if (ciRun) {
-                targets.all {
-                    if (this is KotlinNativeTargetWithTests<*>) {
-                        binaries.test(listOf(RELEASE))
-                        testRuns.all { setExecutionSourceFrom(binaries.getTest(RELEASE)) }
-                        compilations.all {
-                            kotlinOptions.freeCompilerArgs += "-Xallocator=mimalloc"
-                        }
-                    }
-                }
-            }
         }
 
         //common configuration
