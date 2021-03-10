@@ -45,29 +45,22 @@ plugins {
     id("com.jfrog.artifactory") apply false
 }
 
-//true when on CI, and false when local dev. Needed for build configuration
-val ciRun = System.getenv("CI") == "true"
-
-//configure main host, for which jvm and js tests are enabled, true if locally, or linux on CI
-val isMainHost: Boolean = !ciRun || HostManager.hostIsLinux
-
-// can be: macos, ios, watchos, tvos. If provided, compile and test only those targets
-val macTargetsCompilation: String? by project
-
-println("Configuration: ciRun=$ciRun, isMainHost=$isMainHost, macTargetsCompilation=$macTargetsCompilation")
-
 val Project.publicationNames: Array<String>
     get() {
         val publishing: PublishingExtension by extensions
         val all = publishing.publications.names
         //publish js, jvm, metadata, linuxX64 and kotlinMultiplatform only once
         return when {
-            isMainHost -> all
-            else       -> all - "js" - "jvm" - "metadata" - "kotlinMultiplatform" - "linuxX64"
+            HostManager.hostIsLinux -> all
+            else                    -> all - "js" - "jvm" - "metadata" - "kotlinMultiplatform" - "linuxX64"
         }.toTypedArray()
     }
 
 subprojects {
+    tasks.whenTaskAdded {
+        if (name.endsWith("test", ignoreCase = true)) onlyIf { !rootProject.hasProperty("skipTests") }
+    }
+
     plugins.withId("org.jetbrains.kotlin.multiplatform") {
         //targets configuration
         extensions.configure<KotlinMultiplatformExtension> {
@@ -89,7 +82,6 @@ subprojects {
                 }
                 testRuns.all {
                     executionTask.configure {
-                        enabled = isMainHost
                         jvmArgs("-Xmx4g", "-XX:+UseParallelGC")
                     }
                 }
@@ -102,7 +94,6 @@ subprojects {
                 //configure running tests for JS
                 nodejs {
                     testTask {
-                        enabled = isMainHost
                         useMocha {
                             timeout = "600s"
                         }
@@ -110,7 +101,6 @@ subprojects {
                 }
                 browser {
                     testTask {
-                        enabled = isMainHost
                         useKarma {
                             useConfigDirectory(rootDir.resolve("js").resolve("karma.config.d"))
                             useChromeHeadless()
@@ -139,36 +129,9 @@ subprojects {
                 sourceSets["${it.name}Test"].dependsOn(nativeTest)
             }
 
-            fun KotlinNativeTarget.disableCompilation() {
-                compilations.all { compileKotlinTask.enabled = false }
-                binaries.all { linkTask.enabled = false }
-            }
-
-            //disable cross compilation of linux target on non linux hosts
-            if (!HostManager.hostIsLinux) linuxX64().disableCompilation()
-
-            //disable compilation of part of mac targets
-            if (HostManager.hostIsMac) when (macTargetsCompilation) {
-                "macos"                  -> iosTargets + tvosTargets + watchosTargets
-                "ios", "watchos", "tvos" -> {
-                    //disable test compilation for macos, but leave main to compile examples and playground
-                    macosX64 {
-                        compilations.all { if (name == "test") compileKotlinTask.enabled = false }
-                        binaries.all { linkTask.enabled = false }
-                    }
-                    when (macTargetsCompilation) {
-                        "ios"     -> tvosTargets + watchosTargets
-                        "watchos" -> iosTargets + tvosTargets
-                        "tvos"    -> iosTargets + watchosTargets
-                        else      -> emptyList()
-                    }
-                }
-                else                     -> emptyList()
-            }.forEach(KotlinNativeTarget::disableCompilation)
-
             //run tests on release + mimalloc to reduce tests execution time
             //compilation is slower in that mode, but work with buffers is much faster
-            if (ciRun) {
+            if (System.getenv("CI") == "true") {
                 targets.all {
                     if (this is KotlinNativeTargetWithTests<*>) {
                         binaries.test(listOf(RELEASE))
